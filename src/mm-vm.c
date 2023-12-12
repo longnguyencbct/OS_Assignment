@@ -80,18 +80,59 @@ struct vm_rg_struct *get_symrg_byid(struct mm_struct *mm, int rgid)
 int __alloc(struct pcb_t *caller, int vmaid, int rgid, int size, int *alloc_addr)
 {
   /*Allocate at the toproof */
+  #ifdef RAM_STATUS_DUMP
+  printf("######################################\n");
+  printf("Proc %d called __alloc, size: [%d]\n", caller->pid, size);
+  #endif
   struct vm_rg_struct rgnode;
-
+  if (rgid < 0 || rgid > PAGING_MAX_SYMTBL_SZ)
+  {
+    printf("Proc %d __alloc error, Invalid region\n", caller->pid);
+    return -1;
+  }
+  else if (caller->mm->symrgtbl[rgid].rg_start > caller->mm->symrgtbl[rgid].rg_end)
+  {
+    printf("Proc %d __alloc error, Region was alloc before\n", caller->pid);
+    return -1;
+  }
   if (get_free_vmrg_area(caller, vmaid, size, &rgnode) == 0)
   {
+    printf("\n===== Alloc Case ===== Geting free region in FREERG LIST RGID: %d\n", rgid);
     caller->mm->symrgtbl[rgid].rg_start = rgnode.rg_start;
     caller->mm->symrgtbl[rgid].rg_end = rgnode.rg_end;
 
     *alloc_addr = rgnode.rg_start;
 
+    int current_pgn = PAGING_PGN(rgnode.rg_start);
+    uint32_t *current_pte = caller->mm->pgd[current_pgn];
+    printf("\n=====DONE=====  #RGID: %d\n", rgid);
+#ifdef RAM_STATUS_DUMP
+     printf("FOUND A FREE region to alloc.\n");
+    printf("######################################\n");
+    for (int it = 0; it < PAGING_MAX_SYMTBL_SZ; it++)
+    {
+      if (caller->mm->symrgtbl[it].rg_start == 0 && caller->mm->symrgtbl[it].rg_end == 0)
+        continue;
+      else
+        printf("Region id %d : start = %lu, end = %lu\n", it, caller->mm->symrgtbl[it].rg_start, caller->mm->symrgtbl[it].rg_end);
+    }
+    struct vm_area_struct *cur_vma = get_vma_by_num(caller->mm, vmaid);
+    printf("VMA id %d : start = %lu, end = %lu, sbrk = %lu\n", cur_vma->vm_id, cur_vma->vm_start, cur_vma->vm_end, cur_vma->sbrk);
+    printf("######################################\n");
+    printf("Process %d Free Region list \n", caller->pid);
+    struct vm_rg_struct *temp = caller->mm->mmap->vm_freerg_list;
+    while (temp != NULL)
+    {
+      if (temp->rg_start != temp->rg_end)
+        printf("Start = %lu, end = %lu\n", temp->rg_start, temp->rg_end);
+      temp = temp->rg_next;
+    }
+    printf("######################################\n");
+    RAM_dump(caller->mram);
+#endif
     return 0;
   }
-
+  printf("\n=====Alloc Case=====No free region. #RGID: %d\n", rgid);
   /* TODO get_free_vmrg_area FAILED handle the region management (Fig.6)*/
 
   /*Attempt to increate limit to get space */
@@ -113,6 +154,34 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, int size, int *alloc_addr
 
   *alloc_addr = old_sbrk;
 
+  struct vm_rg_struct *rgnode_temp = malloc(sizeof(struct vm_rg_struct));
+  rgnode_temp->rg_start = old_sbrk + size;
+  rgnode_temp->rg_end = cur_vma->sbrk;
+  enlist_vm_freerg_list(caller->mm, *rgnode_temp);
+#ifdef RAM_STATUS_DUMP
+  printf("=====Done===== #RGID: %d\n", rgid);
+  printf("######################################\n");
+  for (int it = 0; it < PAGING_MAX_SYMTBL_SZ; it++)
+  {
+    if (caller->mm->symrgtbl[it].rg_start == 0 && caller->mm->symrgtbl[it].rg_end == 0)
+      continue;
+    else
+      printf("Region id %d : start = %lu, end = %lu\n", it, caller->mm->symrgtbl[it].rg_start, caller->mm->symrgtbl[it].rg_end);
+  }
+
+  printf("######################################\n");
+  printf("Process %d Free Region list \n", caller->pid);
+  struct vm_rg_struct *temp = caller->mm->mmap->vm_freerg_list;
+  while (temp != NULL)
+  {
+    if (temp->rg_start != temp->rg_end)
+      printf("Start = %lu, end = %lu\n", temp->rg_start, temp->rg_end);
+    temp = temp->rg_next;
+  }
+  printf("######################################\n");
+  printf("VMA id %d : start = %lu, end = %lu, sbrk = %lu\n", cur_vma->vm_id, cur_vma->vm_start, cur_vma->vm_end, cur_vma->sbrk);
+  RAM_dump(caller->mram);
+#endif
   return 0;
 }
 
@@ -125,15 +194,53 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, int size, int *alloc_addr
  */
 int __free(struct pcb_t *caller, int vmaid, int rgid)
 {
-  struct vm_rg_struct rgnode;
+  struct vm_rg_struct *rgnode;
 
   if(rgid < 0 || rgid > PAGING_MAX_SYMTBL_SZ)
     return -1;
-
+    printf("Proc %d free error, Invalid region\n", caller->pid);
   /* TODO: Manage the collect freed region to freerg_list */
+  rgnode = get_symrg_byid(caller->mm, rgid);
+  if (rgnode->rg_start == rgnode->rg_end)
+  {
+    printf("Process %d FREE Error: Region wasn't alloc or was freed before\n", caller->pid);
+    return -1;
+  }
+  struct vm_rg_struct *rgnode_temp = malloc(sizeof(struct vm_rg_struct));
+  // Clear content of region in RAM
+  BYTE value;
+  value = 0;
+  for (int i = rgnode->rg_start; i < rgnode->rg_end; i++)
+    pg_setval(caller->mm, i, value, caller);
+  //(caller->mram,rgnode->rg_start,rgnode->rg_end)
+  // Create new node for region
+  rgnode_temp->rg_start = rgnode->rg_start;
+  rgnode_temp->rg_end = rgnode->rg_end;
+  rgnode->rg_start = rgnode->rg_end = 0;
+
 
   /*enlist the obsoleted memory region */
-  enlist_vm_freerg_list(caller->mm, rgnode);
+  enlist_vm_freerg_list(caller->mm, *rgnode_temp);
+
+  printf("######################################\n");
+  printf("Process %d FREE CALL | Region id %d after free: [%lu,%lu]\n", caller->pid, rgid, rgnode->rg_start, rgnode->rg_end);
+  for (int it = 0; it < PAGING_MAX_SYMTBL_SZ; it++)
+  {
+    if (caller->mm->symrgtbl[it].rg_start == 0 && caller->mm->symrgtbl[it].rg_end == 0)
+      continue;
+    else
+      printf("Region id %d : start = %lu, end = %lu\n", it, caller->mm->symrgtbl[it].rg_start, caller->mm->symrgtbl[it].rg_end);
+  }
+  printf("######################################\n");
+  printf("Process %d Free Region list \n", caller->pid);
+  struct vm_rg_struct *temp = caller->mm->mmap->vm_freerg_list;
+  while (temp != NULL)
+  {
+    if (temp->rg_start != temp->rg_end)
+      printf("Start = %lu, end = %lu\n", temp->rg_start, temp->rg_end);
+    temp = temp->rg_next;
+  }
+  printf("######################################\n");
 
   return 0;
 }
