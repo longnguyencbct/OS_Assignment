@@ -62,7 +62,13 @@ struct page_table_t {
 	} table[1 << FIRST_LV_LEN];
 	int size;	// Number of row in the first layer
 };
-
+struct LRU_struct
+{
+	struct LRU_struct *lru_next;
+	struct LRU_struct *lru_pre;
+	uint32_t *pte;
+	int fpn;
+};
 /* PCB, describe information about a process */
 struct pcb_t {
 	uint32_t pid;	// PID

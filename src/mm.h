@@ -136,6 +136,7 @@ int get_free_vmrg_area(struct pcb_t *caller, int vmaid, int size, struct vm_rg_s
 int inc_vma_limit(struct pcb_t *caller, int vmaid, int inc_sz);
 int find_victim_page(struct mm_struct* mm, int *pgn);
 struct vm_area_struct *get_vma_by_num(struct mm_struct *mm, int vmaid);
+int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller);
 
 /* MEM/PHY protypes */
 int MEMPHY_get_freefp(struct memphy_struct *mp, int *fpn);
@@ -143,6 +144,7 @@ int MEMPHY_put_freefp(struct memphy_struct *mp, int fpn);
 int MEMPHY_read(struct memphy_struct * mp, int addr, BYTE *value);
 int MEMPHY_write(struct memphy_struct * mp, int addr, BYTE data);
 int MEMPHY_dump(struct memphy_struct * mp);
+int RAM_dump(struct memphy_struct *mram);
 int init_memphy(struct memphy_struct *mp, int max_size, int randomflg);
 /* DEBUG */
 int print_list_fp(struct framephy_struct *fp);
@@ -152,4 +154,11 @@ int print_list_vma(struct vm_area_struct *rg);
 
 int print_list_pgn(struct pgn_t *ip);
 int print_pgtbl(struct pcb_t *ip, uint32_t start, uint32_t end);
+
+static struct LRU_struct *lru_head;
+static struct LRU_struct *lru_tail;
+void LRU_add_page(uint32_t *pte_add);
+uint32_t *LRU_find_victim_page();
+void LRU_print_page();
+
 #endif

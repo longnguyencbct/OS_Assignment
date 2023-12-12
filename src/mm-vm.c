@@ -9,6 +9,178 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+void LRU_update_lst(uint32_t *pte_rm)
+{
+  struct LRU_struct *p = lru_head;
+  int fpn = PAGING_PTE_FPN(*pte_rm);
+  while (p->lru_next != NULL)
+  {
+    if (p->fpn == fpn)
+    {
+      break;
+    }
+    p = p->lru_next;
+  }
+  if (p == lru_head)
+  {
+    if (lru_head == lru_tail)
+    {
+      return;
+    }
+    lru_head = lru_head->lru_next;
+    lru_head->lru_pre = NULL;
+    // free(p);
+  }
+  else if (p == lru_tail)
+  {
+    return;
+  }
+  else
+  {
+    p->lru_pre->lru_next = p->lru_next;
+    p->lru_next->lru_pre = p->lru_pre;
+    // free(p);
+  }
+  lru_tail->lru_next = p;
+  p->lru_pre = lru_tail;
+  p->lru_next = NULL;
+  lru_tail = p;
+  // p->pte = pte_rm;
+  // lru_tail->lru_next = tmp;
+  // tmp->lru_pre = lru_tail;
+  // tmp->lru_next = NULL;
+  // lru_tail = tmp;
+}
+void LRU_add_page(uint32_t *pte_add)
+{
+  // nên tạo 1 cấu trúc dữ liệu cho LRU, như 1 DLL gần giống stack.
+  struct LRU_struct *tmp = malloc(sizeof(struct LRU_struct));
+  tmp->pte = pte_add; // gắn page table entry.
+  tmp->fpn = PAGING_PTE_FPN(*pte_add);
+  // if (lru_tail != NULL)
+  // {
+
+  //   printf("TAIL: %08x\n", *lru_tail->pte);
+  // }
+  // ADD PAGE VAO TAIL CUA LRUSTRUCT.
+  // printf("=======================================================Frame: %d\n", tmp->fpn);
+  if (lru_head == NULL)
+  {
+    lru_head = tmp;
+    lru_tail = lru_head;
+    tmp->lru_pre = NULL;
+    tmp->lru_next = NULL;
+  }
+  else
+  {
+    struct LRU_struct *p = lru_head;
+    int flag = 0;
+    while (p != NULL)
+    {
+      // duyệt qua để check trùng pte.
+      if (p->fpn == tmp->fpn)
+      {
+        flag = 1;
+        printf("FLAG 1");
+        break;
+      }
+      p = p->lru_next;
+    }
+    if (flag == 1)
+    {
+      if (p == lru_head)
+      {
+        if (lru_head == lru_tail)
+        {
+          return;
+        }
+        lru_head = lru_head->lru_next;
+        lru_head->lru_pre = NULL;
+        // free(p);
+      }
+      else if (p == lru_tail)
+      {
+        return;
+      }
+      else
+      {
+        p->lru_pre->lru_next = p->lru_next;
+        p->lru_next->lru_pre = p->lru_pre;
+        // free(p);
+      }
+
+      lru_tail->lru_next = p;
+      p->lru_pre = lru_tail;
+      p->lru_next = NULL;
+      lru_tail = p;
+      // lru_tail->pte = pte_add;
+    }
+    else
+    {
+      lru_tail->lru_next = tmp;
+      tmp->lru_pre = lru_tail;
+      tmp->lru_next = NULL;
+      lru_tail = tmp;
+      // lru_tail->pte = pte_add;
+      return;
+    }
+  }
+  // LRU_print_page();
+}
+
+uint32_t *LRU_find_victim_page()
+{
+  // pthread_mutex_lock(&FIFO_lock);
+  if (lru_head == NULL)
+    return -1;
+  struct LRU_struct *temp = lru_head;
+  uint32_t *pte_res;
+  pte_res = temp->pte;
+  if (lru_head == lru_tail)
+  {
+    lru_head = lru_tail = NULL;
+  }
+  else
+  {
+    lru_head = lru_head->lru_next;
+
+    if (lru_head != NULL)
+    {
+      lru_head->lru_pre = NULL;
+    }
+
+    temp->lru_next = NULL;
+  }
+  free(temp);
+  // mutexlock here.
+  // pthread_mutex_unlock(&FIFO_lock);
+  return pte_res;
+}
+
+void LRU_print_page()
+{
+  // pthread_mutex_lock(&FIFO_lock);
+  struct LRU_struct *temp = lru_head;
+  printf("---------------LRU LIST---------------\n");
+  printf("FPN: \n");
+  if (temp == NULL)
+    printf("\nEMPTY page directory\n");
+  else
+  {
+    while (temp != NULL)
+    {
+      // printf("[%d][%08x]", PAGING_PTE_FPN(*(temp->pte)), *temp->pte);
+      printf("[%d]", temp->fpn);
+      if (temp->lru_next != NULL)
+      {
+        printf(" -> ");
+      }
+      temp = temp->lru_next;
+    }
+    printf("\n----------------------------------\n\n");
+  }
+  // pthread_mutex_lock(&FIFO_lock);
+}
 /*enlist_vm_freerg_list - add new rg to freerg_list
  *@mm: memory region
  *@rg_elmt: new region
@@ -105,7 +277,15 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, int size, int *alloc_addr
 
     int current_pgn = PAGING_PGN(rgnode.rg_start);
     uint32_t *current_pte = caller->mm->pgd[current_pgn];
+
+    printf("current_pgn = %d\n", current_pgn);
+    printf("print head: %08x\n", *lru_head->pte);
+    printf("Looking for:\t %08x\n", caller->mm->pgd[current_pgn]);
+    printf("Found:\t %08x\n", current_pte);
+
     printf("\n=====DONE=====  #RGID: %d\n", rgid);
+    
+    LRU_update_lst(&current_pte);
 #ifdef RAM_STATUS_DUMP
      printf("FOUND A FREE region to alloc.\n");
     printf("######################################\n");
@@ -129,6 +309,7 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, int size, int *alloc_addr
     }
     printf("######################################\n");
     RAM_dump(caller->mram);
+    LRU_print_page();
 #endif
     return 0;
   }
@@ -181,6 +362,7 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, int size, int *alloc_addr
   printf("######################################\n");
   printf("VMA id %d : start = %lu, end = %lu, sbrk = %lu\n", cur_vma->vm_id, cur_vma->vm_start, cur_vma->vm_end, cur_vma->sbrk);
   RAM_dump(caller->mram);
+  LRU_print_page();
 #endif
   return 0;
 }
@@ -282,34 +464,75 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
  
   if (!PAGING_PAGE_PRESENT(pte))
   { /* Page is not online, make it actively living */
-    int vicpgn, swpfpn; 
+    //int vicpgn, swpfpn; 
     //int vicfpn;
     //uint32_t vicpte;
 
-    int tgtfpn = PAGING_SWP(pte);//the target frame storing our variable
+    //int tgtfpn = PAGING_SWP(pte);//the target frame storing our variable
 
     /* TODO: Play with your paging theory here */
-    /* Find victim page */
-    find_victim_page(caller->mm, &vicpgn);
+    int fpn_temp = -1;
+    if (MEMPHY_get_freefp(caller->mram, &fpn_temp) == 0)
+    {
 
-    /* Get free frame in MEMSWP */
-    MEMPHY_get_freefp(caller->active_mswp, &swpfpn);
+      // lay gia tri tgtfpn
+      int tgtfpn = GETVAL(pte, GENMASK(20, 0), 5);
 
+      // Copy frame from SWAP to RAM
+      __swap_cp_page(caller->active_mswp, tgtfpn, caller->mram, fpn_temp);
+      // Cap nhat gia tri pte
+      pte_set_fpn(&mm->pgd[pgn], fpn_temp);
 
-    /* Do swap frame from MEMRAM to MEMSWP and vice versa*/
-    /* Copy victim frame to swap */
-    //__swap_cp_page();
-    /* Copy target frame from swap to mem */
-    //__swap_cp_page();
+      // Them page moi vao FIFO
+      // FIFO_add_page(&mm->pgd[pgn]);
+      // printf("DEBUG GIA: pte = %08x", mm->pgd[pgn]);
+      LRU_add_page(&mm->pgd[pgn]);
+    }
+    else
+    {
+      int tgtfpn = GETVAL(pte, GENMASK(20, 0), 5);
+      // printf("DEBUG GIA: pte = %08x\n", mm->pgd[pgn]);
+      int vicfpn, swpfpn;
+      uint32_t *vicpte;
+      /* Find pointer to pte of victim frame*/
+      // vicpte = FIFO_find_vt_page_for_swap(caller->mm, &vicfpn);
+      vicpte = LRU_find_victim_page();
 
-    /* Update page table */
-    //pte_set_swap() &mm->pgd;
+      /* Variable for value of pte*/
+      uint32_t vicpte_temp = *vicpte;
+      /*Get victim frame*/
+      vicfpn = GETVAL(vicpte_temp, PAGING_PTE_FPN_MASK, PAGING_PTE_FPN_LOBIT); // 8191 in decimal is 0->12 bit =1 in binary (total 13bit)
+      /* Get free frame in MEMSWP */
+      if (MEMPHY_get_freefp(caller->active_mswp, &swpfpn) < 0)
+      {
+        printf("Out of SWAP");
+        return -3000;
+      }
+#ifdef RAM_STATUS_DUMP
+      printf("[Page Replacement]\tPID #%d:\tVictim:%d\tPTE:%08x\tTarget:%d\t\n", caller->pid, vicfpn, *vicpte, tgtfpn);
+#endif
+      /* Copy victim frame to swap */
+      __swap_cp_page(caller->mram, vicfpn, caller->active_mswp, swpfpn);
 
-    /* Update its online status of the target page */
-    //pte_set_fpn() & mm->pgd[pgn];
-    pte_set_fpn(&pte, tgtfpn);
+      /* Copy target frame from swap to mem */
+      __swap_cp_page(caller->active_mswp, tgtfpn, caller->mram, vicfpn);
 
-    enlist_pgn_node(&caller->mm->fifo_pgn,pgn);
+      // Cap nhat cho pte tro den page vua bi thay rang du lieu do da chuyen vao SWAP
+      pte_set_swap(vicpte, 0, swpfpn);
+
+      // Cap nhat gia tri frame number moi (trong Ram) cho page entry (bao rang pte da co frame number moi)
+      pte_set_fpn(&mm->pgd[pgn], vicfpn);
+
+#ifdef RAM_STATUS_DUMP
+      printf("[After Swap]\tPID #%d:\tVictim:%d\tPTE:%08x\tTarget:%d\t\n", caller->pid, swpfpn, *vicpte, vicfpn);
+#endif
+      // Them page moi vao FIFO
+      // FIFO_add_page(&mm->pgd[pgn]);
+      LRU_add_page(&mm->pgd[pgn]);
+
+      // Put frame trong trong swap vao free frame list
+      MEMPHY_put_freefp(caller->active_mswp, tgtfpn);
+    }
   }
 
   *fpn = PAGING_FPN(pte);
@@ -346,7 +569,7 @@ int pg_getval(struct mm_struct *mm, int addr, BYTE *data, struct pcb_t *caller)
  *@value: value
  *
  */
-int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
+int pg_setval(struct mm_struct *mm, int addr, char value, struct pcb_t *caller)
 {
   int pgn = PAGING_PGN(addr);
   int off = PAGING_OFFST(addr);
