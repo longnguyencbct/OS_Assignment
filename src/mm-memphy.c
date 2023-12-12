@@ -164,6 +164,22 @@ int MEMPHY_dump(struct memphy_struct * mp)
     return 0;
 }
 
+int RAM_dump(struct memphy_struct *mram)
+{
+  int freeCnt = 0;
+  struct framephy_struct *fpit = mram->free_fp_list;
+  while (fpit != NULL)
+  {
+    fpit = fpit->fp_next;
+    freeCnt++;
+  }
+  printf("----------- RAM mapping status -----------\n");
+  printf("Number of mapped frames:\t%d\n", mram->maxsz / PAGING_PAGESZ - freeCnt);
+  printf("Number of remaining frames:\t%d\n", freeCnt);
+  printf("------------------------------------------\n");
+  return 0;
+}
+
 int MEMPHY_put_freefp(struct memphy_struct *mp, int fpn)
 {
    struct framephy_struct *fp = mp->free_fp_list;
@@ -176,7 +192,32 @@ int MEMPHY_put_freefp(struct memphy_struct *mp, int fpn)
 
    return 0;
 }
+int MEMPHY_put_usedfp(struct memphy_struct *mp, int fpn)
+{
+  // pthread_mutex_lock(&memphy_mutex);
 
+  struct framephy_struct *fp = mp->used_fp_list;
+
+  while (fp)
+  {
+    if (fp->fpn == fpn)
+    {
+      return 0;
+    }
+    fp = fp->fp_next;
+  }
+  fp = mp->used_fp_list;
+
+  struct framephy_struct *newnode = malloc(sizeof(struct framephy_struct));
+
+  /* Create new node with value fpn */
+  newnode->fpn = fpn;
+  newnode->fp_next = fp;
+  mp->used_fp_list = newnode;
+
+  // pthread_mutex_unlock(&memphy_mutex);
+  return 0;
+}
 
 /*
  *  Init MEMPHY struct

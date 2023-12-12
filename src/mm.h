@@ -2,6 +2,7 @@
 
 #include "bitops.h"
 #include "common.h"
+#include <pthread.h>
 
 /* CPU Bus definition */
 #define PAGING_CPU_BUS_WIDTH 22 /* 22bit bus - MAX SPACE 4MB */
@@ -11,7 +12,10 @@
 
 #define PAGING_MEMSWPSZ BIT(14) /* 16MB */
 #define PAGING_SWPFPN_OFFSET 5  
-#define PAGING_MAX_PGN  (DIV_ROUND_UP(BIT(PAGING_CPU_BUS_WIDTH),PAGING_PAGESZ))
+
+// #define PAGING_MAX_PGN  (DIV_ROUND_UP(PAGING_CPU_BUS_WIDTH,PAGING_PAGESZ))
+#define PAGING_CPU_BUS_WIDTH2MU BIT(PAGING_CPU_BUS_WIDTH)
+#define PAGING_MAX_PGN (DIV_ROUND_UP(PAGING_CPU_BUS_WIDTH2MU, PAGING_PAGESZ))
 
 #define PAGING_SBRK_INIT_SZ PAGING_PAGESZ
 /* PTE BIT */
@@ -160,5 +164,7 @@ static struct LRU_struct *lru_tail;
 void LRU_add_page(uint32_t *pte_add);
 uint32_t *LRU_find_victim_page();
 void LRU_print_page();
+#define PAGING_PTE_FPN(x) GETVAL(x, PAGING_PTE_FPN_MASK, PAGING_PTE_FPN_LOBIT)
+int MEMPHY_put_usedfp(struct memphy_struct *mp, int fpn);
 
 #endif
